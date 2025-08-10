@@ -51,7 +51,7 @@ A high-performance, multi-DEX arbitrage bot for Solana that automatically detect
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/moonbot777/Arbitrage-TS.git
+git clone https://github.com/moonbot777/Arbitrage-Bot.git
 cd Arbitrage-TS
 ```
 
@@ -146,12 +146,6 @@ Based on real transaction analysis:
 ### Primary Contact
 - **Telegram**: [@greenfoxfun](https://t.me/greenfoxfun)
 - **GitHub**: [@moonbot777](https://github.com/moonbot777)
-
-### Advanced Version
-For access to the advanced version with additional DEXes and features:
-- **Telegram**: [@DevCutup](https://t.me/DevCutup)
-- **WhatsApp**: [+1 313-742-3660](https://wa.me/13137423660)
-- **Twitter**: [@devcutup](https://x.com/devcutup)
 
 ## 📄 License
 
