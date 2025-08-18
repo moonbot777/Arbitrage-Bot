@@ -2,7 +2,8 @@ use anchor_lang::prelude::*;
 use solana_program::instruction::{AccountMeta, Instruction};
 use solana_program;
 use anchor_spl::{
-    token::{TokenAccount}
+    token::{TokenAccount}, 
+    clock::Clock
 };
 use anchor_lang::{Accounts};
 use crate::ix_data::SwapData;
@@ -54,6 +55,11 @@ pub fn _mercurial_swap<'info>(
         &instruction, 
         &accounts, 
     )?;
+
+    // update the swap state 
+    ctx.accounts.swap_state.amount_in = ctx.accounts.swap_state.amount_in.checked_add(amount_in).unwrap();
+    ctx.accounts.swap_state.amount_out = ctx.accounts.swap_state.amount_out.checked_add(0).unwrap();
+    ctx.accounts.swap_state.last_swap_time = Clock::get()?.unix_timestamp;
 
     Ok(())
 }

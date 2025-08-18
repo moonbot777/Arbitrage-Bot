@@ -59,6 +59,11 @@ pub fn _orca_swap<'info>(
         &accounts, 
     )?;
     
+    // update the swap state 
+    ctx.accounts.swap_state.amount_in = ctx.accounts.swap_state.amount_in.checked_add(amount_in).unwrap();
+    ctx.accounts.swap_state.amount_out = ctx.accounts.swap_state.amount_out.checked_add(0).unwrap();
+    ctx.accounts.swap_state.last_swap_time = Clock::get()?.unix_timestamp;
+
     Ok(())
 }
 
