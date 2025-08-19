@@ -3,28 +3,29 @@ use solana_program::instruction::{AccountMeta, Instruction};
 use solana_program;
 use anchor_spl::{
     token::{TokenAccount},  
-    clock::Clock
 };
 use anchor_lang::{Accounts};
 use sha2::{Digest, Sha256};
 
 use crate::state::SwapState;
 
+/// Execute a swap on Aldrin V1 DEX
 pub fn _aldrin_swap_v1<'info>(
     ctx: &Context<'_, '_, '_, 'info, AldrinSwapV1<'info>>, 
     amount_in: u64,
     is_inverted: bool,
 ) -> Result<()> {
+    require!(amount_in > 0, crate::error::ErrorCode::InvalidAmount);
 
-    // anchor method discriminator 
+    // Generate Anchor method discriminator 
     let key = "global:swap".to_string();
     let mut hasher = Sha256::new(); 
     hasher.update(key);
     let result = hasher.finalize();
     let fcn_name = &result.as_slice()[..8];
 
-    let amount_in_bytes = &amount_in.try_to_vec().unwrap()[..];
-    let amount_out_bytes = &(0 as u64).try_to_vec().unwrap()[..];
+    let amount_in_bytes = &amount_in.try_to_vec()?[..];
+    let amount_out_bytes = &(0 as u64).try_to_vec()?[..];
     let bid_ask_flag = if is_inverted { 1 } else { 0 }; // 0 = bid, 1 = ask 
     let bid_ask = &[bid_ask_flag];
     let data = [
@@ -49,7 +50,6 @@ pub fn _aldrin_swap_v1<'info>(
         AccountMeta::new_readonly(*ctx.accounts.token_program.key, false),
     ];
 
-    // gotta work with the bytes to get this right 
     let instruction = Instruction {
         program_id: *ctx.accounts.aldrin_v1_program.key,
         accounts: ix_accounts,
@@ -70,34 +70,33 @@ pub fn _aldrin_swap_v1<'info>(
         ctx.accounts.aldrin_v1_program.to_account_info()
     ];
 
+    // Execute the swap instruction
     solana_program::program::invoke(
         &instruction, 
         &accounts, 
     )?;
 
-    // update the swap state 
-    ctx.accounts.swap_state.amount_in = ctx.accounts.swap_state.amount_in.checked_add(amount_in).unwrap();
-    ctx.accounts.swap_state.amount_out = ctx.accounts.swap_state.amount_out.checked_add(0).unwrap();
-    ctx.accounts.swap_state.last_swap_time = Clock::get()?.unix_timestamp;
-
+    msg!("Aldrin V1 swap executed successfully with amount: {}, inverted: {}", amount_in, is_inverted);
     Ok(())
 }
 
+/// Execute a swap on Aldrin V2 DEX
 pub fn _aldrin_swap_v2<'info>(
     ctx: &Context<'_, '_, '_, 'info, AldrinSwapV2<'info>>, 
     amount_in: u64,
     is_inverted: bool,
 ) -> Result<()> {
+    require!(amount_in > 0, crate::error::ErrorCode::InvalidAmount);
 
-    // anchor method discriminator 
+    // Generate Anchor method discriminator 
     let key = "global:swap".to_string();
     let mut hasher = Sha256::new(); 
     hasher.update(key);
     let result = hasher.finalize();
     let fcn_name = &result.as_slice()[..8];
 
-    let amount_in_bytes = &amount_in.try_to_vec().unwrap()[..];
-    let amount_out_bytes = &(0 as u64).try_to_vec().unwrap()[..];
+    let amount_in_bytes = &amount_in.try_to_vec()?[..];
+    let amount_out_bytes = &(0 as u64).try_to_vec()?[..];
     let bid_ask_flag = if is_inverted { 1 } else { 0 }; // 0 = bid, 1 = ask 
     let bid_ask = &[bid_ask_flag];
     let data = [
@@ -123,7 +122,6 @@ pub fn _aldrin_swap_v2<'info>(
         AccountMeta::new_readonly(*ctx.accounts.token_program.key, false),
     ];
 
-    // gotta work with the bytes to get this right 
     let instruction = Instruction {
         program_id: *ctx.accounts.aldrin_v2_program.key,
         accounts: ix_accounts,
@@ -145,18 +143,14 @@ pub fn _aldrin_swap_v2<'info>(
         ctx.accounts.aldrin_v2_program.to_account_info()
     ];
 
+    // Execute the swap instruction
     solana_program::program::invoke(
         &instruction, 
         &accounts, 
     )?;
 
-    // update the swap state 
-    ctx.accounts.swap_state.amount_in = ctx.accounts.swap_state.amount_in.checked_add(amount_in).unwrap();
-    ctx.accounts.swap_state.amount_out = ctx.accounts.swap_state.amount_out.checked_add(0).unwrap();
-    ctx.accounts.swap_state.last_swap_time = Clock::get()?.unix_timestamp;
-
+    msg!("Aldrin V2 swap executed successfully with amount: {}, inverted: {}", amount_in, is_inverted);
     Ok(())
-    
 }
 
 #[derive(Accounts)]
@@ -171,14 +165,14 @@ pub struct AldrinSwapV1<'info> {
     pub quote_token_vault: AccountInfo<'info>,
     #[account(mut)]
     pub fee_pool_token_account: AccountInfo<'info>,
-    pub user_transfer_authority : Signer<'info>,
+    pub user_transfer_authority: Signer<'info>,
     #[account(mut)]
     pub user_base_ata: Account<'info, TokenAccount>,
     #[account(mut)]
     pub user_quote_ata: Account<'info, TokenAccount>,
     pub aldrin_v1_program: AccountInfo<'info>,
     pub token_program: AccountInfo<'info>,
-    #[account(mut, seeds=[b"swap_state"], bump)] 
+    #[account(mut, seeds = [b"swap_state"], bump)] 
     pub swap_state: Account<'info, SwapState>,
 }
 
@@ -194,14 +188,14 @@ pub struct AldrinSwapV2<'info> {
     pub quote_token_vault: AccountInfo<'info>,
     #[account(mut)]
     pub fee_pool_token_account: AccountInfo<'info>,
-    pub user_transfer_authority : Signer<'info>,
+    pub user_transfer_authority: Signer<'info>,
     #[account(mut)]
     pub user_base_ata: Account<'info, TokenAccount>,
     #[account(mut)]
     pub user_quote_ata: Account<'info, TokenAccount>,
     pub aldrin_v2_program: AccountInfo<'info>,
-    pub curve: AccountInfo<'info>, // v2 difference! 
+    pub curve: AccountInfo<'info>, // V2 difference! 
     pub token_program: AccountInfo<'info>,
-    #[account(mut, seeds=[b"swap_state"], bump)] 
+    #[account(mut, seeds = [b"swap_state"], bump)] 
     pub swap_state: Account<'info, SwapState>,
 }

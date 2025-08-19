@@ -8,15 +8,17 @@ use anchor_lang::{Accounts};
 use crate::ix_data::SwapData;
 use crate::state::SwapState;
 
+/// Execute a swap on Saber DEX
 pub fn _saber_swap<'info>(
     ctx: &Context<'_, '_, '_, 'info, SaberSwap<'info>>, 
     amount_in: u64
 ) -> Result<()> {
+    require!(amount_in > 0, crate::error::ErrorCode::InvalidAmount);
 
     let data = SwapData {
-        instruction: 1, // swap instruction 
+        instruction: 1, // Swap instruction 
         amount_in: amount_in,
-        minimum_amount_out: 0, // no saftey lmfao 
+        minimum_amount_out: 0, // No safety check for now
     };
     
     let ix_accounts = vec![
@@ -53,20 +55,22 @@ pub fn _saber_swap<'info>(
         ctx.accounts.saber_swap_program.to_account_info()
     ];
 
+    // Execute the swap instruction
     solana_program::program::invoke(
         &instruction, 
         &accounts, 
     )?;
 
+    msg!("Saber swap executed successfully with amount: {}", amount_in);
     Ok(())
 }
 
-#[derive(Accounts, Clone)]
+#[derive(Accounts)]
 pub struct SaberSwap<'info> {
     #[account(mut)]
     pub pool_account: AccountInfo<'info>,
     pub authority: AccountInfo<'info>,
-    pub user_transfer_authority : Signer<'info>,
+    pub user_transfer_authority: Signer<'info>,
     #[account(mut)]
     pub user_src: Account<'info, TokenAccount>,
     #[account(mut)]
@@ -77,9 +81,8 @@ pub struct SaberSwap<'info> {
     pub user_dst: Account<'info, TokenAccount>,
     #[account(mut)]
     pub fee_dst: Account<'info, TokenAccount>,
-    // ...
     pub saber_swap_program: AccountInfo<'info>,
-    #[account(mut, seeds=[b"swap_state"], bump)] 
+    #[account(mut, seeds = [b"swap_state"], bump)] 
     pub swap_state: Account<'info, SwapState>,
     pub token_program: AccountInfo<'info>,
 }

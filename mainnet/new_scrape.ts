@@ -1,35 +1,44 @@
 import * as token from "@solana/spl-token"
 import * as web3 from "@solana/web3.js";
 import { Buffer } from 'buffer';
-
 import BN from 'bn.js';
+import * as fs from 'fs';
 
-const fs = require('fs');
-
-async function read_dir_names(dir_name: string) {
-    const dir = fs.opendirSync(dir_name)
-    let dirent
-    let dirs = []
-    while ((dirent = dir.readSync()) !== null) {
-        dirs.push(dirent.name)
+/**
+ * Read directory names from a given directory
+ */
+async function readDirNames(dirName: string): Promise<string[]> {
+    try {
+        const dir = fs.opendirSync(dirName);
+        const dirs: string[] = [];
+        let dirent;
+        
+        while ((dirent = dir.readSync()) !== null) {
+            dirs.push(dirent.name);
+        }
+        
+        dir.closeSync();
+        return dirs;
+    } catch (error) {
+        console.error(`Error reading directory ${dirName}:`, error);
+        return [];
     }
-    dir.closeSync()
-    return dirs
 }
 
-
-function chunk(array, chunkSize) {
-    var R = [];
-    for (var i = 0; i < array.length; i += chunkSize) {
-        R.push(array.slice(i, i + chunkSize));
+/**
+ * Split array into chunks of specified size
+ */
+function chunk<T>(array: T[], chunkSize: number): T[][] {
+    const result: T[][] = [];
+    for (let i = 0; i < array.length; i += chunkSize) {
+        result.push(array.slice(i, i + chunkSize));
     }
-    return R;
+    return result;
 }
 
 import { publicKey, struct, u32, u64, u8, option, vec } from '@project-serum/borsh';
 
-// l m f a o 
-//* AccountLayout.encode from "@solana/spl-token" doesn't work : https://github.com/solana-labs/solana-program-library/blob/27a58282d354ab3596e48a9be7957eec511b8b8e/stake-pool/js/src/layouts.ts#L14
+// Account layout for SPL tokens
 export const AccountLayout = struct<token.AccountInfo>([
     publicKey('mint'),
     publicKey('owner'),
@@ -45,238 +54,289 @@ export const AccountLayout = struct<token.AccountInfo>([
 ]);
 
 async function main() {    
+    console.log("Starting Solana arbitrage bot setup...");
     
-    let connection = new web3.Connection("https://ssc-dao.genesysgo.net");
-    let programs = [];
-    let accounts = [];
-    let mints = [];
+    // Initialize connection to Solana network
+    const connection = new web3.Connection("https://ssc-dao.genesysgo.net");
+    const programs: string[] = [];
+    const accounts: string[] = [];
+    const mints: string[] = [];
 
-    // get all the accounts to clone
+    try {
+        // ORCA POOL SETUP 
+        console.log("Setting up Orca pools...");
+        const orcaPid = "9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP";
+        programs.push(orcaPid);
 
-    // ORCA POOL SETUP 
-    let orca_pid = "9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP";
-    programs.push(orca_pid) 
-
-    let orca_pools = "../pools/orca/";
-    let orca_pool_names: string[] = await read_dir_names(orca_pools);
-    var orca_count = 0;
-    orca_pool_names.forEach(name => {
-        let pool = JSON.parse(fs.readFileSync(orca_pools+name));
-        orca_count += 1 
-        pool.tokenIds.forEach(mintId => {
-            accounts.push(pool.tokens[mintId].addr)
-            mints.push(mintId)
-        });
-        accounts.push(pool.address);
-        accounts.push(pool.poolTokenMint);
-        accounts.push(pool.feeAccount);    
-    });
-    let prog_accs = await connection.getProgramAccounts(new web3.PublicKey(orca_pid))
-    prog_accs.forEach(v => {
-        accounts.push(v.pubkey.toString())
-        orca_count += 1
-    })
-    console.log("orca count", orca_count)
-
-    // MERCURIAL POOL SETUP 
-    let mercurial_pid = "MERLuDFBMmsHnsBPZw2sDQZHvXFMwp8EdjudcU2HKky";
-    programs.push(mercurial_pid) 
-    
-    let mercurial_pools = "../pools/mercurial/";
-    let mercurial_pool_names: string[] = await read_dir_names(mercurial_pools);
-    let mercurial_count = 0;
-    mercurial_pool_names.forEach(n => {
-        let pool = JSON.parse(fs.readFileSync(mercurial_pools+n));
-        mercurial_count += 1 
-        accounts.push(pool.pool_account)
-        pool.token_ids.forEach(mintId => {
-            accounts.push(pool.tokens[mintId].addr)
-            mints.push(mintId)
-        });
-    })
-    console.log("mercurial_count", mercurial_count)
-
-    // SABER POOL SETUP 
-    let saber_pid = "SSwpkEEcbUqx4vtoEByFjSkhKdCT862DNVb52nZg1UZ";
-    programs.push(saber_pid) 
-    // read testing pool 
-    let saber_pools = "../pools/saber/";
-    let saber_pool_names = await read_dir_names(saber_pools);
-    let saber_count = 0; 
-    saber_pool_names.forEach(name => {
-        let pool = JSON.parse(fs.readFileSync(saber_pools+name));
-        saber_count += 1;
-        // console.log(pool)
-        accounts.push(pool.pool_account)
-        accounts.push(pool.pool_token_mint)
-
-        pool.token_ids.forEach(mintId => {
-            accounts.push(pool.tokens[mintId].addr)
-            accounts.push(pool.fee_accounts[mintId])
-            mints.push(mintId);
-        });
-    });
-    console.log("saber_count", saber_count)
-
-    // ALDRIN POOL 
-    let aldrin_v1 = "AMM55ShdkoGRB5jVYPjWziwk8m5MpwyDgsMWHaMSQWH6"
-    programs.push(aldrin_v1)
-    let aldrin_v2 = "CURVGoZn8zycx6FXwwevgBTB2gVvdbGTEpvMJDbgs2t4"
-    programs.push(aldrin_v2)
-    // read testing pool 
-    let aldrin_pools = "../pools/aldrin/";
-    let aldrin_pool_names = await read_dir_names(aldrin_pools);
-    let aldrin_count = 0; 
-    aldrin_pool_names.forEach(name => {
-        let pool = JSON.parse(fs.readFileSync(aldrin_pools+name));
-        // console.log(pool)
-        aldrin_count += 1;
-        accounts.push(pool.poolPublicKey)
-        accounts.push(pool.poolMint)
-        // fees 
-        accounts.push(pool.feePoolTokenAccount)
-        accounts.push(pool.feeBaseAccount)
-        accounts.push(pool.feeQuoteAccount)
-        accounts.push(pool.lpTokenFreezeVault)
-
-        if (pool.poolVersion == 2) {
-            accounts.push(pool.curve);
+        const orcaPools = "../pools/orca/";
+        const orcaPoolNames: string[] = await readDirNames(orcaPools);
+        let orcaCount = 0;
+        
+        for (const name of orcaPoolNames) {
+            try {
+                const pool = JSON.parse(fs.readFileSync(orcaPools + name, 'utf8'));
+                orcaCount++;
+                
+                pool.tokenIds.forEach((mintId: string) => {
+                    accounts.push(pool.tokens[mintId].addr);
+                    mints.push(mintId);
+                });
+                
+                accounts.push(pool.address);
+                accounts.push(pool.poolTokenMint);
+                accounts.push(pool.feeAccount);
+            } catch (error) {
+                console.warn(`Error processing Orca pool ${name}:`, error);
+            }
         }
-
-        pool.tokenIds.forEach(mintId => {
-            accounts.push(pool.tokens[mintId].addr)
-            mints.push(mintId);
+        
+        const progAccs = await connection.getProgramAccounts(new web3.PublicKey(orcaPid));
+        progAccs.forEach(v => {
+            accounts.push(v.pubkey.toString());
+            orcaCount++;
         });
-    });
-    console.log("aldrin_count", aldrin_count)
-
-    // SERUM AMM 
-    let serum_pid = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
-    programs.push(serum_pid) 
-
-    let serum_pools = "../pools/serum/"; 
-    let serum_pool_names = await read_dir_names(serum_pools);
-    let serum_count = 0; 
-    for (let name of serum_pool_names) {
-        let pool = JSON.parse(fs.readFileSync(serum_pools+name));
-        serum_count += 1;
-    
-        accounts.push(pool.ownAddress);
-        accounts.push(pool.requestQueue);    
-        accounts.push(pool.bids);
-        accounts.push(pool.asks);
-        accounts.push(pool.baseVault);
-        accounts.push(pool.quoteVault);
-        accounts.push(pool.eventQueue);
-    
-        // accounts.push(pool.vaultSigner);
-        // let vaultSigner = (await web3.PublicKey.findProgramAddress(
-        //     [new web3.PublicKey(pool.ownAddress).toBuffer()],
-        //     new web3.PublicKey(serum_pid)
-        // ))[0];
-        // accounts.push(vaultSigner);
         
-        mints.push(pool.baseMint);
-        mints.push(pool.quoteMint);
-    }
-    console.log("serum_count", serum_count)
+        console.log("Orca count:", orcaCount);
 
-    // fee-based not swapable
-    let other = "MSRMcoVyrFxnSgo5uXwone5SKcGhT1KEJMFEkMEWf9L"
-    accounts.push(other)
-
-    // // JUPITER SWAP PROGRAM 
-    // let jupiter_addr = "JUP2jxvXaqu7NQY1GmNF4m1vodw12LVXYxbFL2uJvfo"
-    // programs.push(jupiter_addr)
-    
-    //  my mainnet ATAs
-    // let pk_str = "GmhAnaL9UkY23zxbfzpt7UPYM5dcdN3iGXLCFD7RtBrE";
-    // let my_pubkey = new web3.PublicKey(pk_str);
-    // let token_accounts_resp = await connection.getTokenAccountsByOwner(my_pubkey, {
-    //     programId: token.TOKEN_PROGRAM_ID,
-    // });
-    // // we will modify these explicitly 
-    // let ata_accounts = [];
-    // token_accounts_resp.value.forEach(v => {
-    //     ata_accounts.push(v.pubkey.toString())
-    // });
-    // accounts.push(pk_str)
-
-    // remove duplicates 
-    accounts = [...new Set(accounts)];
-    programs = [...new Set(programs)];
-    mints = [...new Set(mints)];
-
-    console.log("saving programs:", programs.length)
-    console.log("saving accounts:", accounts.length)
-    console.log("mints:", mints.length);
-
-    // save mints 
-    fs.writeFile(`saved_mints.json`, JSON.stringify(mints), 'utf8', ()=>{});
-
-    // new owner pk so we dont fck the mainnet acc up in testing lol 
-    let owner = web3.Keypair.generate();
-    console.log('owner pK:', owner.publicKey.toString());
-    // save secret 
-    fs.writeFile(`localnet_owner.key`, "["+owner.secretKey.toString()+"]", () => {});  
-
-    // equivalent to 
-    // command = "solana account -u m \
-    // --output json-compact \
-    // --output-file accounts/{}.json {}" 
-    // BATCHED >:)
-
-    console.log("scrapping accounts...")
-    let n = 0;
-    for (let acc_chunk of chunk(accounts, 99)) {
-        console.log(99 * n, "/", accounts.length);
-        n += 1;
-        let infos = await connection.getMultipleAccountsInfo(acc_chunk.map(s => new web3.PublicKey(s)))
+        // MERCURIAL POOL SETUP 
+        console.log("Setting up Mercurial pools...");
+        const mercurialPid = "MERLuDFBMmsHnsBPZw2sDQZHvXFMwp8EdjudcU2HKky";
+        programs.push(mercurialPid);
         
-        for (let i=0; i < infos.length; i ++) {
-            let pk = acc_chunk[i];
-            var info = infos[i]
+        const mercurialPools = "../pools/mercurial/";
+        const mercurialPoolNames: string[] = await readDirNames(mercurialPools);
+        let mercurialCount = 0;
+        
+        for (const name of mercurialPoolNames) {
+            try {
+                const pool = JSON.parse(fs.readFileSync(mercurialPools + name, 'utf8'));
+                mercurialCount++;
+                
+                accounts.push(pool.pool_account);
+                pool.token_ids.forEach((mintId: string) => {
+                    accounts.push(pool.tokens[mintId].addr);
+                    mints.push(mintId);
+                });
+            } catch (error) {
+                console.warn(`Error processing Mercurial pool ${name}:`, error);
+            }
+        }
+        
+        console.log("Mercurial count:", mercurialCount);
+
+        // SABER POOL SETUP 
+        console.log("Setting up Saber pools...");
+        const saberPid = "SSwpkEEcbUqx4vtoEByFjSkhKdCT862DNVb52nZg1UZ";
+        programs.push(saberPid);
+        
+        const saberPools = "../pools/saber/";
+        const saberPoolNames = await readDirNames(saberPools);
+        let saberCount = 0;
+        
+        for (const name of saberPoolNames) {
+            try {
+                const pool = JSON.parse(fs.readFileSync(saberPools + name, 'utf8'));
+                saberCount++;
+                
+                accounts.push(pool.pool_account);
+                accounts.push(pool.pool_token_mint);
+
+                pool.token_ids.forEach((mintId: string) => {
+                    accounts.push(pool.tokens[mintId].addr);
+                    accounts.push(pool.fee_accounts[mintId]);
+                    mints.push(mintId);
+                });
+            } catch (error) {
+                console.warn(`Error processing Saber pool ${name}:`, error);
+            }
+        }
+        
+        console.log("Saber count:", saberCount);
+
+        // ALDRIN POOL SETUP
+        console.log("Setting up Aldrin pools...");
+        const aldrinV1 = "AMM55ShdkoGRB5jVYPjWziwk8m5MpwyDgsMWHaMSQWH6";
+        programs.push(aldrinV1);
+        
+        const aldrinV2 = "CURVGoZn8zycx6FXwwevgBTB2gVvdbGTEpvMJDbgs2t4";
+        programs.push(aldrinV2);
+        
+        const aldrinPools = "../pools/aldrin/";
+        const aldrinPoolNames = await readDirNames(aldrinPools);
+        let aldrinCount = 0;
+        
+        for (const name of aldrinPoolNames) {
+            try {
+                const pool = JSON.parse(fs.readFileSync(aldrinPools + name, 'utf8'));
+                aldrinCount++;
+                
+                accounts.push(pool.poolPublicKey);
+                accounts.push(pool.poolMint);
+                accounts.push(pool.feePoolTokenAccount);
+                accounts.push(pool.feeBaseAccount);
+                accounts.push(pool.feeQuoteAccount);
+                accounts.push(pool.lpTokenFreezeVault);
+
+                if (pool.poolVersion == 2) {
+                    accounts.push(pool.curve);
+                }
+
+                pool.tokenIds.forEach((mintId: string) => {
+                    accounts.push(pool.tokens[mintId].addr);
+                    mints.push(mintId);
+                });
+            } catch (error) {
+                console.warn(`Error processing Aldrin pool ${name}:`, error);
+            }
+        }
+        
+        console.log("Aldrin count:", aldrinCount);
+
+        // SERUM AMM SETUP
+        console.log("Setting up Serum pools...");
+        const serumPid = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
+        programs.push(serumPid);
+
+        const serumPools = "../pools/serum/"; 
+        const serumPoolNames = await readDirNames(serumPools);
+        let serumCount = 0;
+        
+        for (const name of serumPoolNames) {
+            try {
+                const pool = JSON.parse(fs.readFileSync(serumPools + name, 'utf8'));
+                serumCount++;
             
-            let notype_info = JSON.parse(JSON.stringify(info, null, "\t"))
-            notype_info.data = [info.data.toString("base64"), "base64"]
-
-            let local_validator_acc = {
-                account: notype_info, 
-                pubkey: pk,
+                accounts.push(pool.ownAddress);
+                accounts.push(pool.requestQueue);    
+                accounts.push(pool.bids);
+                accounts.push(pool.asks);
+                accounts.push(pool.baseVault);
+                accounts.push(pool.quoteVault);
+                accounts.push(pool.eventQueue);
+            
+                mints.push(pool.baseMint);
+                mints.push(pool.quoteMint);
+            } catch (error) {
+                console.warn(`Error processing Serum pool ${name}:`, error);
             }
-            let path = `accounts/${pk}.json`; 
-            fs.writeFile(path, JSON.stringify(local_validator_acc), 'utf8', ()=>{});
         }
-    }
-
-    fs.writeFile(`programs.json`, JSON.stringify(programs, null, "\t"), 'utf8', ()=>{});
-
-    console.log("scrapping mints...")
-    for (let acc_chunk of chunk(mints, 99)) {
-        let infos = await connection.getMultipleAccountsInfo(acc_chunk.map(s => new web3.PublicKey(s)))
         
-        for (let i=0; i < infos.length; i ++) {
-            let pk = acc_chunk[i];
-            var info = infos[i]
-            // let data = info.data; 
+        console.log("Serum count:", serumCount);
 
-            let mint = token.MintLayout.decode(info.data);
-            mint.mintAuthority = owner.publicKey.toBuffer(); // allow me to mint more :)
-            mint.mintAuthorityOption = 1; // :)
-            let data = Buffer.alloc(token.MintLayout.span);
-            token.MintLayout.encode(mint, data);
+        // Fee-based not swapable
+        const other = "MSRMcoVyrFxnSgo5uXwone5SKcGhT1KEJMFEkMEWf9L";
+        accounts.push(other);
 
-            let notype_info = JSON.parse(JSON.stringify(info, null, "\t"))
-            notype_info.data = [data.toString("base64"), "base64"] // !! 
-            let local_validator_acc = {
-                account: notype_info, 
-                pubkey: pk,
+        // Remove duplicates 
+        const uniqueAccounts = [...new Set(accounts)];
+        const uniquePrograms = [...new Set(programs)];
+        const uniqueMints = [...new Set(mints)];
+
+        console.log("Saving programs:", uniquePrograms.length);
+        console.log("Saving accounts:", uniqueAccounts.length);
+        console.log("Mints:", uniqueMints.length);
+
+        // Save mints 
+        fs.writeFileSync(`saved_mints.json`, JSON.stringify(uniqueMints, null, 2), 'utf8');
+
+        // Generate new owner keypair for testing
+        const owner = web3.Keypair.generate();
+        console.log('Owner public key:', owner.publicKey.toString());
+        
+        // Save secret key
+        fs.writeFileSync(`localnet_owner.key`, "[" + owner.secretKey.toString() + "]", 'utf8');
+
+        // Scrape accounts
+        console.log("Scraping accounts...");
+        let n = 0;
+        
+        for (const accChunk of chunk(uniqueAccounts, 99)) {
+            console.log(`${99 * n} / ${uniqueAccounts.length}`);
+            n++;
+            
+            try {
+                const infos = await connection.getMultipleAccountsInfo(
+                    accChunk.map(s => new web3.PublicKey(s))
+                );
+                
+                for (let i = 0; i < infos.length; i++) {
+                    const pk = accChunk[i];
+                    const info = infos[i];
+                    
+                    if (!info) {
+                        console.warn(`No info for account ${pk}`);
+                        continue;
+                    }
+                    
+                    const notypeInfo = JSON.parse(JSON.stringify(info, null, "\t"));
+                    notypeInfo.data = [info.data.toString("base64"), "base64"];
+
+                    const localValidatorAcc = {
+                        account: notypeInfo, 
+                        pubkey: pk,
+                    };
+                    
+                    const path = `accounts/${pk}.json`; 
+                    fs.writeFileSync(path, JSON.stringify(localValidatorAcc, null, 2), 'utf8');
+                }
+            } catch (error) {
+                console.error(`Error processing account chunk ${n}:`, error);
             }
-            let path = `accounts/${pk}.json`; 
-            fs.writeFile(path, JSON.stringify(local_validator_acc), 'utf8', ()=>{});
         }
-    }
 
+        fs.writeFileSync(`programs.json`, JSON.stringify(uniquePrograms, null, 2), 'utf8');
+
+        // Scrape mints
+        console.log("Scraping mints...");
+        for (const mintChunk of chunk(uniqueMints, 99)) {
+            try {
+                const infos = await connection.getMultipleAccountsInfo(
+                    mintChunk.map(s => new web3.PublicKey(s))
+                );
+                
+                for (let i = 0; i < infos.length; i++) {
+                    const pk = mintChunk[i];
+                    const info = infos[i];
+                    
+                    if (!info) {
+                        console.warn(`No info for mint ${pk}`);
+                        continue;
+                    }
+                    
+                    try {
+                        const mint = token.MintLayout.decode(info.data);
+                        mint.mintAuthority = owner.publicKey.toBuffer(); // Allow minting for testing
+                        mint.mintAuthorityOption = 1;
+                        
+                        const data = Buffer.alloc(token.MintLayout.span);
+                        token.MintLayout.encode(mint, data);
+
+                        const notypeInfo = JSON.parse(JSON.stringify(info, null, "\t"));
+                        notypeInfo.data = [data.toString("base64"), "base64"];
+                        
+                        const localValidatorAcc = {
+                            account: notypeInfo, 
+                            pubkey: pk,
+                        };
+                        
+                        const path = `accounts/${pk}.json`; 
+                        fs.writeFileSync(path, JSON.stringify(localValidatorAcc, null, 2), 'utf8');
+                    } catch (error) {
+                        console.warn(`Error processing mint ${pk}:`, error);
+                    }
+                }
+            } catch (error) {
+                console.error(`Error processing mint chunk:`, error);
+            }
+        }
+
+        console.log("Setup completed successfully!");
+        
+    } catch (error) {
+        console.error("Error during setup:", error);
+        process.exit(1);
+    }
 }
 
-main()
+// Run the main function
+main().catch(console.error);

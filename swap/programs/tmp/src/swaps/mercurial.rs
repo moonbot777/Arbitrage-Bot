@@ -3,21 +3,22 @@ use solana_program::instruction::{AccountMeta, Instruction};
 use solana_program;
 use anchor_spl::{
     token::{TokenAccount}, 
-    clock::Clock
 };
 use anchor_lang::{Accounts};
 use crate::ix_data::SwapData;
 use crate::state::SwapState;
 
+/// Execute a swap on Mercurial DEX
 pub fn _mercurial_swap<'info>(
     ctx: &Context<'_, '_, '_, 'info, MercurialSwap<'info>>, 
     amount_in: u64
 ) -> Result<()> {
-    // get initial balances
+    require!(amount_in > 0, crate::error::ErrorCode::InvalidAmount);
+    
     let data = SwapData {
-        instruction: 4, // swap instruction 
+        instruction: 4, // Swap instruction 
         amount_in: amount_in,
-        minimum_amount_out: 0, // no saftey lmfao 
+        minimum_amount_out: 0, // No safety check for now
     };
 
     let ix_accounts = vec![
@@ -51,16 +52,13 @@ pub fn _mercurial_swap<'info>(
         ctx.accounts.mercurial_swap_program.to_account_info(),
     ];
 
+    // Execute the swap instruction
     solana_program::program::invoke(
         &instruction, 
         &accounts, 
     )?;
 
-    // update the swap state 
-    ctx.accounts.swap_state.amount_in = ctx.accounts.swap_state.amount_in.checked_add(amount_in).unwrap();
-    ctx.accounts.swap_state.amount_out = ctx.accounts.swap_state.amount_out.checked_add(0).unwrap();
-    ctx.accounts.swap_state.last_swap_time = Clock::get()?.unix_timestamp;
-
+    msg!("Mercurial swap executed successfully with amount: {}", amount_in);
     Ok(())
 }
 
@@ -69,7 +67,7 @@ pub struct MercurialSwap<'info> {
     #[account(mut)]
     pub pool_account: AccountInfo<'info>,
     pub authority: AccountInfo<'info>,
-    pub user_transfer_authority : Signer<'info>,
+    pub user_transfer_authority: Signer<'info>,
     #[account(mut)]
     pub user_src: Account<'info, TokenAccount>,
     #[account(mut)]
@@ -80,6 +78,6 @@ pub struct MercurialSwap<'info> {
     pub user_dst: Account<'info, TokenAccount>,
     pub token_program: AccountInfo<'info>,
     pub mercurial_swap_program: AccountInfo<'info>,
-    #[account(mut, seeds=[b"swap_state"], bump)] 
+    #[account(mut, seeds = [b"swap_state"], bump)] 
     pub swap_state: Account<'info, SwapState>,
 }

@@ -10,35 +10,36 @@ use std::num::NonZeroU64;
 
 use crate::state::SwapState;
 
-// all taken from the serum swap program 
-
-/// Convenience API to initialize an open orders account on the Serum DEX.
+/// Initialize an open orders account on the Serum DEX
 pub fn _init_open_order<'info>(ctx: Context<InitOpenOrder>) -> Result<()> {
     let ctx = CpiContext::new(ctx.accounts.dex_program.clone(), ctx.accounts.into());
-    dex::init_open_orders(ctx).unwrap();
+    dex::init_open_orders(ctx)?;
+    msg!("Open orders account initialized successfully");
     Ok(())
 }
 
+/// Execute a swap on Serum DEX
 pub fn _serum_swap<'info>(
     ctx: &Context<'_, '_, '_, 'info, SerumSwap<'info>>,
     amount_in: u64,
     side: Side,
 ) -> Result<()> {
+    require!(amount_in > 0, crate::error::ErrorCode::InvalidAmount);
 
-    // Optional referral account (earns a referral fee).
+    // Optional referral account (earns a referral fee)
     let referral = ctx.remaining_accounts.iter().next().map(Clone::clone);
 
-    // Execute trade.
+    // Execute trade
     let orderbook: OrderbookClient<'info> = (&*ctx.accounts).into();
     match side {
         Side::Bid => orderbook.buy(amount_in, None)?,
         Side::Ask => orderbook.sell(amount_in, None)?,
     };
-    orderbook.settle(referral)?; // instant settle 
+    orderbook.settle(referral)?; // Instant settle 
 
+    msg!("Serum swap executed successfully with amount: {}, side: {:?}", amount_in, side);
     Ok(())
 }
-
 
 #[derive(Accounts)]
 pub struct InitOpenOrder<'info> {
@@ -94,13 +95,13 @@ pub struct SerumSwap<'info> {
     #[account(signer)]
     pub authority: AccountInfo<'info>,
     #[account(mut)]
-    pub pc_wallet: Account<'info, TokenAccount>, // !! 
-    // Programs.
+    pub pc_wallet: Account<'info, TokenAccount>, // Quote currency wallet
+    // Programs
     pub dex_program: AccountInfo<'info>,
     pub token_program: AccountInfo<'info>,
-    // Sysvars.
+    // Sysvars
     pub rent: AccountInfo<'info>,
-    #[account(mut, seeds=[b"swap_state"], bump, )] 
+    #[account(mut, seeds = [b"swap_state"], bump)] 
     pub swap_state: Account<'info, SwapState>,
 }
 
@@ -117,7 +118,7 @@ impl<'info> From<&SerumSwap<'info>> for OrderbookClient<'info> {
     }
 }
 
-// Client for sending orders to the Serum DEX.
+// Client for sending orders to the Serum DEX
 #[derive(Clone)]
 struct OrderbookClient<'info> {
     market: MarketAccounts<'info>,
@@ -141,8 +142,8 @@ impl<'info> OrderbookClient<'info> {
     ) -> Result<()> {
         let limit_price = 1;
         let max_coin_qty = {
-            // The loaded market must be dropped before CPI.
-            let market = MarketState::load(&self.market.market, &dex::ID).unwrap();
+            // The loaded market must be dropped before CPI
+            let market = MarketState::load(&self.market.market, &dex::ID)?;
             coin_lots(&market, base_amount)
         };
         let max_native_pc_qty = u64::MAX;
@@ -177,14 +178,14 @@ impl<'info> OrderbookClient<'info> {
         )
     }
 
-    // Executes a new order on the serum dex via CPI.
+    // Executes a new order on the serum dex via CPI
     //
-    // * `limit_price` - the limit order price in lot units.
-    // * `max_coin_qty`- the max number of the base currency lot units.
+    // * `limit_price` - the limit order price in lot units
+    // * `max_coin_qty`- the max number of the base currency lot units
     // * `max_native_pc_qty` - the max number of quote currency in native token
-    //                         units (includes decimals).
-    // * `side` - bid or ask, i.e. the type of order.
-    // * `referral` - referral account, earning a fee.
+    //                         units (includes decimals)
+    // * `side` - bid or ask, i.e. the type of order
+    // * `referral` - referral account, earning a fee
     fn order_cpi(
         &self,
         limit_price: u64,
@@ -193,11 +194,11 @@ impl<'info> OrderbookClient<'info> {
         side: Side,
         srm_msrm_discount: Option<AccountInfo<'info>>,
     ) -> Result<()> {
-        // Client order id is only used for cancels. Not used here so hardcode.
+        // Client order id is only used for cancels. Not used here so hardcode
         let client_order_id = 0;
-        // Limit is the dex's custom compute budge parameter, setting an upper
+        // Limit is the dex's custom compute budget parameter, setting an upper
         // bound on the number of matching cycles the program can perform
-        // before giving up and posting the remaining unmatched order.
+        // before giving up and posting the remaining unmatched order
         let limit = 65535;
 
         let mut ctx = CpiContext::new(self.dex_program.clone(), self.clone().into());
@@ -207,9 +208,9 @@ impl<'info> OrderbookClient<'info> {
         dex::new_order_v3(
             ctx,
             side.into(),
-            NonZeroU64::new(limit_price).unwrap(),
-            NonZeroU64::new(max_coin_qty).unwrap(),
-            NonZeroU64::new(max_native_pc_qty).unwrap(),
+            NonZeroU64::new(limit_price).ok_or(crate::error::ErrorCode::InvalidAmount)?,
+            NonZeroU64::new(max_coin_qty).ok_or(crate::error::ErrorCode::InvalidAmount)?,
+            NonZeroU64::new(max_native_pc_qty).ok_or(crate::error::ErrorCode::InvalidAmount)?,
             SelfTradeBehavior::DecrementTake,
             OrderType::ImmediateOrCancel,
             client_order_id,
@@ -256,13 +257,13 @@ impl<'info> From<OrderbookClient<'info>> for dex::NewOrderV3<'info> {
     }
 }
 
-// Returns the amount of lots for the base currency of a trade with `size`.
+// Returns the amount of lots for the base currency of a trade with `size`
 fn coin_lots(market: &MarketState, size: u64) -> u64 {
-    size.checked_div(market.coin_lot_size).unwrap()
+    size.checked_div(market.coin_lot_size).unwrap_or(0)
 }
 
 // Market accounts are the accounts used to place orders against the dex minus
-// common accounts, i.e., program ids, sysvars, and the `pc_wallet`.
+// common accounts, i.e., program ids, sysvars, and the `pc_wallet`
 #[derive(Accounts, Clone)]
 pub struct MarketAccounts<'info> {
     #[account(mut)]
@@ -278,24 +279,24 @@ pub struct MarketAccounts<'info> {
     #[account(mut)]
     pub asks: AccountInfo<'info>,
     // The `spl_token::Account` that funds will be taken from, i.e., transferred
-    // from the user into the market's vault.
+    // from the user into the market's vault
     //
-    // For bids, this is the base currency. For asks, the quote.
+    // For bids, this is the base currency. For asks, the quote
     #[account(mut)]
     pub order_payer_token_account: AccountInfo<'info>,
     // Also known as the "base" currency. For a given A/B market,
-    // this is the vault for the A mint.
+    // this is the vault for the A mint
     #[account(mut)]
     pub coin_vault: AccountInfo<'info>,
     // Also known as the "quote" currency. For a given A/B market,
-    // this is the vault for the B mint.
+    // this is the vault for the B mint
     #[account(mut)]
     pub pc_vault: AccountInfo<'info>,
-    // PDA owner of the DEX's token accounts for base + quote currencies.
+    // PDA owner of the DEX's token accounts for base + quote currencies
     pub vault_signer: AccountInfo<'info>,
-    // User wallets.
+    // User wallets
     #[account(mut)]
-    pub coin_wallet: Account<'info, TokenAccount>,  // !! 
+    pub coin_wallet: Account<'info, TokenAccount>,  // Base currency wallet
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize)]
@@ -314,51 +315,51 @@ impl From<Side> for SerumSide {
 }
 
 // Event emitted when a swap occurs for two base currencies on two different
-// markets (quoted in the same token).
+// markets (quoted in the same token)
 #[event]
 pub struct DidSwap {
-    // User given (max) amount  of the "from" token to swap.
+    // User given (max) amount of the "from" token to swap
     pub given_amount: u64,
     // The minimum exchange rate for swapping `from_amount` to `to_amount` in
     // native units with decimals equal to the `to_amount`'s mint--specified
-    // by the client.
+    // by the client
     pub min_exchange_rate: ExchangeRate,
-    // Amount of the `from` token sold.
+    // Amount of the `from` token sold
     pub from_amount: u64,
-    // Amount of the `to` token purchased.
+    // Amount of the `to` token purchased
     pub to_amount: u64,
     // The amount of the quote currency used for a *transitive* swap. This is
-    // the amount *received* for selling on the first leg of the swap.
+    // the amount *received* for selling on the first leg of the swap
     pub quote_amount: u64,
     // Amount of the quote currency accumulated from a *transitive* swap, i.e.,
     // the difference between the amount gained from the first leg of the swap
-    // (to sell) and the amount used in the second leg of the swap (to buy).
+    // (to sell) and the amount used in the second leg of the swap (to buy)
     pub spill_amount: u64,
-    // Mint sold.
+    // Mint sold
     pub from_mint: Pubkey,
-    // Mint purchased.
+    // Mint purchased
     pub to_mint: Pubkey,
     // Mint of the token used as the quote currency in the two markets used
-    // for swapping.
+    // for swapping
     pub quote_mint: Pubkey,
-    // User that signed the transaction.
+    // User that signed the transaction
     pub authority: Pubkey,
 }
 
-// An exchange rate for swapping *from* one token *to* another.
+// An exchange rate for swapping *from* one token *to* another
 #[derive(AnchorSerialize, AnchorDeserialize)]
 pub struct ExchangeRate {
-    // The amount of *to* tokens one should receive for a single *from token.
+    // The amount of *to* tokens one should receive for a single *from token
     // This number must be in native *to* units with the same amount of decimals
-    // as the *to* mint.
+    // as the *to* mint
     pub rate: u64,
-    // Number of decimals of the *from* token's mint.
+    // Number of decimals of the *from* token's mint
     pub from_decimals: u8,
-    // Number of decimals of the *to* token's mint.
-    // For a direct swap, this should be zero.
+    // Number of decimals of the *to* token's mint
+    // For a direct swap, this should be zero
     pub quote_decimals: u8,
     // True if *all* of the *from* currency sold should be used when calculating
-    // the executed exchange rate.
+    // the executed exchange rate
     //
     // To perform a transitive swap, one sells on one market and buys on
     // another, where both markets are quoted in the same currency. Now suppose
@@ -372,18 +373,8 @@ pub struct ExchangeRate {
     // in USDC received. If strict is false, an effective exchange rate will be
     // used. I.e. the surplus in USDC will be marked at the exchange rate from
     // the second leg of the swap and that amount will be added to the
-    // *to* mint received before calculating the swap's exchange rate.
+    // *to* mint received before calculating the swap's exchange rate
     //
-    // Transitive swaps only. For direct swaps, this field is ignored.
+    // Transitive swaps only. For direct swaps, this field is ignored
     pub strict: bool,
-}
-
-#[error_code]
-pub enum SerumErrorCode {
-    #[msg("The tokens being swapped must have different mints")]
-    SwapTokensCannotMatch,
-    #[msg("Slippage tolerance exceeded")]
-    SlippageExceeded,
-    #[msg("No tokens received when swapping")]
-    ZeroSwap,
 }

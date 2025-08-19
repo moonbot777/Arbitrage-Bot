@@ -2,7 +2,7 @@
 name = "tmp"
 version = "0.1.0"
 description = "Created with Anchor"
-edition = "2018"
+edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "lib"]
@@ -16,8 +16,8 @@ cpi = ["no-entrypoint"]
 default = []
 
 [dependencies]
-anchor-lang = "0.22.1"
-solana-program = "1.9.9"
-# https://github.com/project-serum/anchor/tree/master/spl
-anchor-spl = {version="0.22.1", features=["dex"]}
-sha2 = "0.10.2"
+anchor-lang = { workspace = true }
+solana-program = { workspace = true }
+anchor-spl = { workspace = true, features = ["dex"] }
+sha2 = "0.10.8"
+thiserror = "1.0"
