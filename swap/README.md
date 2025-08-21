@@ -34,6 +34,11 @@ A high-performance Solana program for executing arbitrage trades across multiple
 - `saber_swap`: Execute swap on Saber DEX
 - `serum_swap`: Execute swap on Serum DEX
 
+### Constants
+
+- `MIN_SWAP_AMOUNT`: Minimum amount for any swap (1)
+- `MAX_COMPUTE_UNITS`: Maximum compute units for transactions (65535)
+
 ## State Management
 
 The `SwapState` account tracks:
@@ -105,6 +110,15 @@ await program.methods
 - State validation before swap execution
 - Profit verification with automatic revert
 - Comprehensive error handling
+- Pool configuration validation
+
+## Performance Improvements
+
+- Better memory management
+- Optimized account validation
+- Improved error recovery
+- Enhanced logging and monitoring
+- Connection timeout handling
 
 ## License
 

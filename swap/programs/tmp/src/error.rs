@@ -6,9 +6,9 @@ pub enum ErrorCode {
     NoProfit,
     #[msg("Trying to swap when information is invalid.")]
     InvalidState,
-    #[msg("Not enough funds: amount_in > src_balance.")]
+    #[msg("Not enough funds: swap amount exceeds available balance.")]
     NotEnoughFunds,
-    #[msg("Invalid amount: must be greater than 0.")]
+    #[msg("Invalid amount: must be greater than or equal to 1.")]
     InvalidAmount,
     #[msg("Arithmetic overflow occurred.")]
     Overflow,

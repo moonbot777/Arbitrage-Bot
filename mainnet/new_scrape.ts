@@ -56,8 +56,21 @@ export const AccountLayout = struct<token.AccountInfo>([
 async function main() {    
     console.log("Starting Solana arbitrage bot setup...");
     
-    // Initialize connection to Solana network
-    const connection = new web3.Connection("https://ssc-dao.genesysgo.net");
+    // Initialize connection to Solana network with timeout
+    const connection = new web3.Connection(
+        "https://ssc-dao.genesysgo.net",
+        'confirmed'
+    );
+    
+    // Test connection
+    try {
+        await connection.getLatestBlockhash();
+        console.log("Connection to Solana network established successfully");
+    } catch (error) {
+        console.error("Failed to connect to Solana network:", error);
+        process.exit(1);
+    }
+    
     const programs: string[] = [];
     const accounts: string[] = [];
     const mints: string[] = [];

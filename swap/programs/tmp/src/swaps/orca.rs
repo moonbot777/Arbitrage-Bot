@@ -15,6 +15,12 @@ pub fn _orca_swap<'info>(
 ) -> Result<()> {
     require!(amount_in > 0, crate::error::ErrorCode::InvalidAmount);
     
+    // Validate pool accounts are different
+    require!(
+        ctx.accounts.pool_src.key() != ctx.accounts.pool_dst.key(),
+        crate::error::ErrorCode::InvalidPoolConfig
+    );
+    
     let data = SwapData {
         instruction: 1, // Swap instruction 
         amount_in: amount_in,

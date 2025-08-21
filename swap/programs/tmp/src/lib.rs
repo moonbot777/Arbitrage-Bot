@@ -16,6 +16,10 @@ pub mod swaps;
 
 pub use swaps::*; 
 
+// Constants for better maintainability
+pub const MIN_SWAP_AMOUNT: u64 = 1;
+pub const MAX_COMPUTE_UNITS: u32 = 65535;
+
 #[program]
 pub mod tmp {
     use super::*;
@@ -27,14 +31,19 @@ pub mod tmp {
         swap_state.is_valid = false;
         swap_state.total_swaps = 0;
         swap_state.total_volume = 0;
+        swap_state.total_profit = 0;
         swap_state.created_at = Clock::get()?.unix_timestamp;
+        swap_state.current_swap_start = 0;
+        swap_state.last_swap_time = 0;
+        
         msg!("Swap program initialized successfully");
         Ok(())
     }
     
     /// Start a new swap sequence
     pub fn start_swap(ctx: Context<TokenAndSwapState>, swap_input: u64) -> Result<()> {
-        require!(swap_input > 0, ErrorCode::InvalidAmount);
+        require!(swap_input >= MIN_SWAP_AMOUNT, ErrorCode::InvalidAmount);
+        require!(ctx.accounts.src.amount >= swap_input, ErrorCode::NotEnoughFunds);
         
         let swap_state = &mut ctx.accounts.swap_state;
         swap_state.start_balance = ctx.accounts.src.amount;
@@ -52,6 +61,8 @@ pub mod tmp {
     /// Verify profit and complete swap sequence
     pub fn profit_or_revert(ctx: Context<TokenAndSwapState>) -> Result<()> {
         let swap_state = &mut ctx.accounts.swap_state; 
+        require!(swap_state.is_valid, ErrorCode::InvalidState);
+        
         swap_state.is_valid = false;
 
         let init_balance = swap_state.start_balance;
@@ -181,6 +192,7 @@ pub fn end_swap(
     let swap_amount_out = dst_end_balance.checked_sub(dst_start_balance)
         .ok_or(ErrorCode::Overflow)?;
     
+    require!(swap_amount_out > 0, ErrorCode::NoProfit);
     msg!("Swap amount out: {}", swap_amount_out);
 
     // Will be input amount into the next swap instruction
@@ -198,7 +210,7 @@ pub fn prepare_swap(
     
     // Get the swap in amount from the state 
     let amount_in = swap_state.swap_input;
-    require!(amount_in > 0, ErrorCode::InvalidAmount);
+    require!(amount_in >= MIN_SWAP_AMOUNT, ErrorCode::InvalidAmount);
     
     msg!("Swap amount in: {}", amount_in);
     
